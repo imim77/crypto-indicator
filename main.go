@@ -34,6 +34,10 @@ func (ob *Orderbook) handleDepthResponse(res BinanceDepthResult) {
 		price, _ := strconv.ParseFloat(ask[0], 64)
 		volume, _ := strconv.ParseFloat(ask[1], 64)
 		if volume == 0 {
+			if entry, ok := ob.Asks.Get(getAskByPrice(price)); ok {
+				log.Printf("-- deleting level %.2f", price)
+				ob.Asks.Delete(entry)
+			}
 			return
 		}
 		entry := &OrderbookEntry{
@@ -46,6 +50,10 @@ func (ob *Orderbook) handleDepthResponse(res BinanceDepthResult) {
 		price, _ := strconv.ParseFloat(bid[0], 64)
 		volume, _ := strconv.ParseFloat(bid[1], 64)
 		if volume == 0 {
+			if entry, ok := ob.Bids.Get(getBidByPrice(price)); ok {
+				log.Printf("-- deleting level %.2f", price)
+				ob.Bids.Delete(entry)
+			}
 			return
 		}
 		entry := &OrderbookEntry{
@@ -53,6 +61,32 @@ func (ob *Orderbook) handleDepthResponse(res BinanceDepthResult) {
 			Volume: volume,
 		}
 		ob.Bids.Insert(entry)
+	}
+}
+
+func getAskByPrice(price float64) btree.CompareAgainst[*OrderbookEntry] {
+	return func(e *OrderbookEntry) int {
+		switch {
+		case e.Price < price:
+			return -1
+		case e.Price > price:
+			return 1
+		default:
+			return 0
+		}
+	}
+}
+
+func getBidByPrice(price float64) btree.CompareAgainst[*OrderbookEntry] {
+	return func(e *OrderbookEntry) int {
+		switch {
+		case e.Price > price:
+			return -1
+		case e.Price < price:
+			return 1
+		default:
+			return 0
+		}
 	}
 }
 
