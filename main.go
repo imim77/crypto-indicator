@@ -7,6 +7,8 @@ import (
 
 	"github.com/VictorLowther/btree"
 	"github.com/gorilla/websocket"
+	"github.com/mattn/go-runewidth"
+	"github.com/nsf/termbox-go"
 )
 
 const wsendpoint = "wss://fstream.binance.com/stream?streams=btcusdt@depth"
@@ -29,13 +31,60 @@ type Orderbook struct {
 	Bids *btree.Tree[*OrderbookEntry]
 }
 
+// "novi main kao!?"
+func main() {
+	termbox.Init()
+	conn, _, err := websocket.DefaultDialer.Dial(wsendpoint, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var (
+		ob     = NewOrderBook()
+		result BinanceDepthResponse
+	)
+	go func() {
+		for {
+			if err := conn.ReadJSON(&result); err != nil {
+				log.Fatal(err)
+			}
+			ob.handleDepthResponse(result.Data)
+		}
+	}()
+	// label -> označava cijelu for petlju
+loop:
+	for {
+		switch ev := termbox.PollEvent(); ev.Type {
+		case termbox.EventKey:
+			switch ev.Key {
+			case termbox.KeySpace:
+			case termbox.KeyEsc:
+				break loop
+			}
+		default:
+		}
+		termbox.Clear(termbox.ColorDefault, termbox.ColorDefault)
+		ob.render(0, 0)
+		termbox.Flush()
+	}
+}
+
+func renderText(x int, y int, msg string, color termbox.Attribute) {
+	for _, chr := range msg {
+		termbox.SetCell(x, y, chr, color, termbox.ColorDefault)
+		w := runewidth.RuneWidth(chr)
+		x += w
+
+	}
+}
+
 func (ob *Orderbook) handleDepthResponse(res BinanceDepthResult) {
 	for _, ask := range res.Asks {
 		price, _ := strconv.ParseFloat(ask[0], 64)
 		volume, _ := strconv.ParseFloat(ask[1], 64)
 		if volume == 0 {
 			if entry, ok := ob.Asks.Get(getAskByPrice(price)); ok {
-				log.Printf("-- deleting level %.2f", price)
+				//log.Printf("-- deleting level %.2f", price)
 				ob.Asks.Delete(entry)
 			}
 			return
@@ -51,7 +100,7 @@ func (ob *Orderbook) handleDepthResponse(res BinanceDepthResult) {
 		volume, _ := strconv.ParseFloat(bid[1], 64)
 		if volume == 0 {
 			if entry, ok := ob.Bids.Get(getBidByPrice(price)); ok {
-				log.Printf("-- deleting level %.2f", price)
+				//log.Printf("-- deleting level %.2f", price)
 				ob.Bids.Delete(entry)
 			}
 			return
@@ -61,6 +110,18 @@ func (ob *Orderbook) handleDepthResponse(res BinanceDepthResult) {
 			Volume: volume,
 		}
 		ob.Bids.Insert(entry)
+	}
+}
+
+func (ob *Orderbook) render(x, y int) {
+	it := ob.Asks.Iterator(nil, nil)
+	i := 0
+	for it.Next() {
+		//fmt.Printf("%+v\n", it.Item())
+		item := it.Item()
+		priceStr := fmt.Sprintf("%.2f", item.Price)
+		renderText(x, y+i, priceStr, termbox.ColorRed)
+		i++
 	}
 }
 
@@ -107,7 +168,7 @@ type BinanceDepthResponse struct {
 	Data   BinanceDepthResult `json:"data"`
 }
 
-func main() {
+func _main() {
 	conn, _, err := websocket.DefaultDialer.Dial(wsendpoint, nil)
 	if err != nil {
 		log.Fatal(err)
