@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"strconv"
-	"time"
 
 	"github.com/VictorLowther/btree"
 	"github.com/gorilla/websocket"
@@ -32,46 +31,16 @@ type Orderbook struct {
 	Bids *btree.Tree[*OrderbookEntry]
 }
 
-// "novi main kao!?"
-func main() {
-	termbox.Init()
-	conn, _, err := websocket.DefaultDialer.Dial(wsendpoint, nil)
-	if err != nil {
-		log.Fatal(err)
+func render() {
+	w, h := termbox.Size()
+	for i := 0; i < w; i++ {
+		termbox.SetCell(i, 0, '-', termbox.ColorMagenta, termbox.ColorDefault)
+		termbox.SetCell(i, h-1, '-', termbox.ColorMagenta, termbox.ColorDefault)
 	}
 
-	var (
-		ob     = NewOrderBook()
-		result BinanceDepthResponse
-	)
-	go func() {
-		for {
-			if err := conn.ReadJSON(&result); err != nil {
-				log.Fatal(err)
-			}
-			ob.handleDepthResponse(result.Data)
-		}
-	}()
-	is_running := true
-	go func() {
-		time.Sleep(time.Second * 10)
-		is_running = false
-	}()
-	for is_running {
-		/*
-			switch ev := termbox.PollEvent(); ev.Type {
-			case termbox.EventKey:
-				switch ev.Key {
-				case termbox.KeySpace:
-				case termbox.KeyEsc:
-					break loop
-				}
-			default:
-			}
-		*/
-		termbox.Clear(termbox.ColorDefault, termbox.ColorDefault)
-		ob.render(0, 0)
-		termbox.Flush()
+	for i := 0; i < h; i++ {
+		termbox.SetCell(0, i, '|', termbox.ColorMagenta, termbox.ColorDefault)
+		termbox.SetCell(w-1, i, '|', termbox.ColorMagenta, termbox.ColorDefault)
 	}
 }
 
@@ -88,13 +57,16 @@ func (ob *Orderbook) handleDepthResponse(res BinanceDepthResult) {
 	for _, ask := range res.Asks {
 		price, _ := strconv.ParseFloat(ask[0], 64)
 		volume, _ := strconv.ParseFloat(ask[1], 64)
-		if volume == 0 {
-			if entry, ok := ob.Asks.Get(getAskByPrice(price)); ok {
-				//log.Printf("-- deleting level %.2f", price)
+
+		if entry, ok := ob.Asks.Get(getAskByPrice(price)); ok {
+			if volume == 0 {
 				ob.Asks.Delete(entry)
+			} else {
+				entry.Volume = volume
 			}
 			continue
 		}
+
 		entry := &OrderbookEntry{
 			Price:  price,
 			Volume: volume,
@@ -104,14 +76,16 @@ func (ob *Orderbook) handleDepthResponse(res BinanceDepthResult) {
 	for _, bid := range res.Bids {
 		price, _ := strconv.ParseFloat(bid[0], 64)
 		volume, _ := strconv.ParseFloat(bid[1], 64)
-		if volume == 0 {
-			if entry, ok := ob.Bids.Get(getBidByPrice(price)); ok {
-				//log.Printf("-- deleting level %.2f", price)
+
+		if entry, ok := ob.Bids.Get(getBidByPrice(price)); ok {
+			if volume == 0 {
 				ob.Bids.Delete(entry)
+			} else {
+				entry.Volume = volume
 			}
 			continue
-
 		}
+
 		entry := &OrderbookEntry{
 			Price:  price,
 			Volume: volume,
@@ -120,26 +94,64 @@ func (ob *Orderbook) handleDepthResponse(res BinanceDepthResult) {
 	}
 }
 
+func (ob *Orderbook) getBids() []*OrderbookEntry {
+	var (
+		depth = 10
+		bids  = make([]*OrderbookEntry, depth)
+		it    = ob.Bids.Iterator(nil, nil)
+		i     = 0
+	)
+	for it.Next() {
+		if i == depth {
+			break
+		}
+		bids[i] = it.Item()
+		i++
+	}
+	it.Release()
+	return bids
+}
+
+func (ob *Orderbook) getAsks() []*OrderbookEntry {
+	var (
+		depth = 10
+		asks  = make([]*OrderbookEntry, depth)
+		it    = ob.Asks.Iterator(nil, nil)
+		i     = 0
+	)
+	for it.Next() {
+		if i == depth {
+			break
+		}
+		asks[i] = it.Item()
+		i++
+	}
+	it.Release()
+	return asks
+}
+
 func (ob *Orderbook) render(x, y int) {
-	it := ob.Asks.Iterator(nil, nil)
-	i := 0
-	for it.Next() {
-		//fmt.Printf("%+v\n", it.Item())
-		item := it.Item()
-		priceStr := fmt.Sprintf("%.2f", item.Price)
-		renderText(x, y+i, priceStr, termbox.ColorRed)
-		i++
+	for i, ask := range ob.getAsks() {
+		if ask == nil {
+			continue
+		}
+		price := fmt.Sprintf("%.2f", ask.Price)
+		volume := fmt.Sprintf("%.2f", ask.Price)
+		renderText(x, y+i, price, termbox.ColorRed)
+		renderText(x+10, y+i, volume, termbox.ColorCyan)
+
 	}
-	it = ob.Bids.Iterator(nil, nil)
-	i = 0
-	x = x + 15
-	for it.Next() {
-		//fmt.Printf("%+v\n", it.Item())
-		item := it.Item()
-		priceStr := fmt.Sprintf("%.2f", item.Price)
-		renderText(x, y+i, priceStr, termbox.ColorGreen)
-		i++
+	for i, bid := range ob.getBids() {
+		if bid == nil {
+			continue
+		}
+		price := fmt.Sprintf("%.2f", bid.Price)
+		volume := fmt.Sprintf("%.2f", bid.Price)
+		renderText(x, 10+i, price, termbox.ColorGreen)
+		renderText(x+10, 10+i, volume, termbox.ColorCyan)
+
 	}
+
 }
 
 func getAskByPrice(price float64) btree.CompareAgainst[*OrderbookEntry] {
@@ -185,7 +197,9 @@ type BinanceDepthResponse struct {
 	Data   BinanceDepthResult `json:"data"`
 }
 
-func _main() {
+// "novi main kao!?"
+func main() {
+	termbox.Init()
 	conn, _, err := websocket.DefaultDialer.Dial(wsendpoint, nil)
 	if err != nil {
 		log.Fatal(err)
@@ -195,16 +209,45 @@ func _main() {
 		ob     = NewOrderBook()
 		result BinanceDepthResponse
 	)
-
-	for {
-		if err := conn.ReadJSON(&result); err != nil {
-			log.Fatal(err)
+	go func() {
+		for {
+			if err := conn.ReadJSON(&result); err != nil {
+				log.Fatal(err)
+			}
+			ob.handleDepthResponse(result.Data)
 		}
-		ob.handleDepthResponse(result.Data)
-		it := ob.Asks.Iterator(nil, nil)
-		for it.Next() {
-			fmt.Printf("%+v\n", it.Item())
+	}()
+	is_running := true
+	eventch := make(chan termbox.Event, 1)
+	go func() {
+		for {
+			eventch <- termbox.PollEvent()
 		}
+	}()
+	for is_running {
+		select {
+		case event := <-eventch:
+			switch event.Key {
+			case termbox.KeyEsc:
+				is_running = false
+			}
+		default:
+			termbox.Clear(termbox.ColorDefault, termbox.ColorDefault)
+			ob.render(2, 2)
+			render()
+			//time.Sleep(time.Millisecond * 16)
+			termbox.Flush()
+		}
+		/*
+			switch ev := termbox.PollEvent(); ev.Type {
+			case termbox.EventKey:
+				switch ev.Key {
+				case termbox.KeySpace:
+				case termbox.KeyEsc:
+					break loop
+				}
+			default:
+			}
+		*/
 	}
-
 }
