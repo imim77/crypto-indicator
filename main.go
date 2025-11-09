@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"time"
 
 	"github.com/VictorLowther/btree"
 	"github.com/gorilla/websocket"
@@ -51,18 +52,23 @@ func main() {
 			ob.handleDepthResponse(result.Data)
 		}
 	}()
-	// label -> označava cijelu for petlju
-loop:
-	for {
-		switch ev := termbox.PollEvent(); ev.Type {
-		case termbox.EventKey:
-			switch ev.Key {
-			case termbox.KeySpace:
-			case termbox.KeyEsc:
-				break loop
+	is_running := true
+	go func() {
+		time.Sleep(time.Second * 10)
+		is_running = false
+	}()
+	for is_running {
+		/*
+			switch ev := termbox.PollEvent(); ev.Type {
+			case termbox.EventKey:
+				switch ev.Key {
+				case termbox.KeySpace:
+				case termbox.KeyEsc:
+					break loop
+				}
+			default:
 			}
-		default:
-		}
+		*/
 		termbox.Clear(termbox.ColorDefault, termbox.ColorDefault)
 		ob.render(0, 0)
 		termbox.Flush()
@@ -87,7 +93,7 @@ func (ob *Orderbook) handleDepthResponse(res BinanceDepthResult) {
 				//log.Printf("-- deleting level %.2f", price)
 				ob.Asks.Delete(entry)
 			}
-			return
+			continue
 		}
 		entry := &OrderbookEntry{
 			Price:  price,
@@ -103,7 +109,8 @@ func (ob *Orderbook) handleDepthResponse(res BinanceDepthResult) {
 				//log.Printf("-- deleting level %.2f", price)
 				ob.Bids.Delete(entry)
 			}
-			return
+			continue
+
 		}
 		entry := &OrderbookEntry{
 			Price:  price,
@@ -121,6 +128,16 @@ func (ob *Orderbook) render(x, y int) {
 		item := it.Item()
 		priceStr := fmt.Sprintf("%.2f", item.Price)
 		renderText(x, y+i, priceStr, termbox.ColorRed)
+		i++
+	}
+	it = ob.Bids.Iterator(nil, nil)
+	i = 0
+	x = x + 15
+	for it.Next() {
+		//fmt.Printf("%+v\n", it.Item())
+		item := it.Item()
+		priceStr := fmt.Sprintf("%.2f", item.Price)
+		renderText(x, y+i, priceStr, termbox.ColorGreen)
 		i++
 	}
 }
